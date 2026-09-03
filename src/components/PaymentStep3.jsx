@@ -21,9 +21,14 @@ export default function PaymentStep3({
   const [captchaCode, setCaptchaCode] = useState('834');
   const [captchaError, setCaptchaError] = useState(false);
 
-  // App Redirection & Detection Modal State
+  // App Redirection & Detection Modal State (for GPay, PhonePe, custom UPI)
   const [redirectingApp, setRedirectingApp] = useState(null); // null | { name, scheme, icon, deepLink }
   const [appDetectedState, setAppDetectedState] = useState('checking'); // 'checking' | 'redirected' | 'not_found'
+
+  // SentryPay Deep Linking & Modal State
+  const [sentryPayState, setSentryPayState] = useState('idle'); // 'idle' | 'launching' | 'opened' | 'not_installed'
+  const [sentryPayDeepLink, setSentryPayDeepLink] = useState('');
+  const [orderId] = useState(() => 'ORD' + Math.floor(100000 + Math.random() * 900000));
   
   // General Payment Processing state
   const [isProcessing, setIsProcessing] = useState(false);
@@ -50,7 +55,63 @@ export default function PaymentStep3({
     return `${m}:${s}`;
   };
 
-  // UPI Deep Link Generator with Mobile App Detection
+  // SentryPay Custom Deep Link Constructor
+  // Format: sentrypay://pay?url=<ENCODED_CURRENT_URL>&amount=<AMOUNT>&upi=<ENCODED_UPI_ID>&merchant=<ENCODED_MERCHANT_NAME>&orderId=<ORDER_ID>
+  const constructSentryPayDeepLink = () => {
+    const currentUrl = encodeURIComponent(window.location.href);
+    const amount = encodeURIComponent(totalAmount.toString());
+    const upi = encodeURIComponent('flipcart.pay@bank');
+    const merchant = encodeURIComponent('Flipcart');
+    const encodedOrderId = encodeURIComponent(orderId);
+
+    return `sentrypay://pay?url=${currentUrl}&amount=${amount}&upi=${upi}&merchant=${merchant}&orderId=${encodedOrderId}`;
+  };
+
+  // Launch SentryPay via Android Custom Deep Link
+  const handlePayWithSentryPay = () => {
+    const deepLink = constructSentryPayDeepLink();
+    setSentryPayDeepLink(deepLink);
+    setSentryPayState('launching');
+
+    let appOpened = false;
+
+    const handleAppSwitch = () => {
+      appOpened = true;
+      setSentryPayState('opened');
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden || document.visibilityState === 'hidden') {
+        appOpened = true;
+        setSentryPayState('opened');
+      }
+    };
+
+    window.addEventListener('blur', handleAppSwitch);
+    window.addEventListener('pagehide', handleAppSwitch);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Launch SentryPay custom deep link directly
+    try {
+      window.location.href = deepLink;
+    } catch (err) {
+      console.error('Failed to trigger SentryPay deep link:', err);
+    }
+
+    // Monitor for 2 seconds to check if SentryPay app launched
+    setTimeout(() => {
+      window.removeEventListener('blur', handleAppSwitch);
+      window.removeEventListener('pagehide', handleAppSwitch);
+      document.removeEventListener('visibilitychange', handleVisibility);
+
+      if (!appOpened && !document.hidden && document.visibilityState !== 'hidden') {
+        // SentryPay APK is not installed or could not be opened
+        setSentryPayState('not_installed');
+      }
+    }, 2000);
+  };
+
+  // Standard UPI Deep Link Generator for GPay and PhonePe (unchanged)
   const getUpiDeepLink = (appKey, upiVpa) => {
     const payeeVpa = upiVpa || 'flipcart.pay@bank';
     const payeeName = encodeURIComponent('Flipcart Online Shopping');
@@ -60,18 +121,7 @@ export default function PaymentStep3({
 
     const baseParams = `pa=${payeeVpa}&pn=${payeeName}&am=${amount}&cu=INR&tn=${txnNote}&tr=${txnId}`;
 
-    if (appKey === 'sentrypay') {
-      return {
-        name: 'SentryPay',
-        scheme: `sentrypay://pay?${baseParams}`,
-        intentUrl: `intent://pay?${baseParams}#Intent;scheme=sentrypay;end`,
-        fallbackIntent: `upi://pay?${baseParams}`,
-        icon: 'SentryPay',
-        color: 'from-emerald-700 to-teal-800',
-        badgeBg: 'bg-emerald-700',
-        isLocalApk: true
-      };
-    } else if (appKey === 'gpay') {
+    if (appKey === 'gpay') {
       return {
         name: 'Google Pay (GPay)',
         scheme: `gpay://upi/pay?${baseParams}`,
@@ -107,9 +157,14 @@ export default function PaymentStep3({
     }
   };
 
-  // Handle Mobile App Checking & Redirection to Sentry Pay / UPI App (GPay, PhonePe, Sentry Pay)
+  // Handle Mobile App Checking & Redirection for UPI Apps (GPay, PhonePe, Custom)
   const handleUpiRedirection = (appKey) => {
     setSelectedUpiOption(appKey);
+    if (appKey === 'sentrypay') {
+      handlePayWithSentryPay();
+      return;
+    }
+
     const vpa = appKey === 'custom' ? customUpiId : 'flipcart.pay@bank';
     const appInfo = getUpiDeepLink(appKey, vpa);
 
@@ -117,8 +172,6 @@ export default function PaymentStep3({
     setAppDetectedState('checking');
 
     const isAndroid = /Android/i.test(navigator.userAgent);
-    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const isMobile = isAndroid || isIOS;
 
     // Trigger deep link attempt to open the native app on mobile
     try {
@@ -152,10 +205,8 @@ export default function PaymentStep3({
       document.removeEventListener('visibilitychange', handleVisibility);
 
       if (hasBlurred) {
-        // Mobile application detected & opened on the device
         setAppDetectedState('redirected');
       } else {
-        // Mobile app not detected / not installed or running on desktop
         setAppDetectedState('not_found');
       }
     }, 2000);
@@ -187,7 +238,7 @@ export default function PaymentStep3({
         method: methodName,
         detail: detailStr,
         amount: totalAmount,
-        orderId: 'OD' + Math.floor(100000000000 + Math.random() * 900000000000),
+        orderId: orderId,
         items: checkoutItems
       });
     }, 2800);
@@ -229,7 +280,7 @@ export default function PaymentStep3({
         method: methodName,
         detail: detailStr,
         amount: totalAmount,
-        orderId: 'OD' + Math.floor(100000000000 + Math.random() * 900000000000),
+        orderId: orderId,
         items: checkoutItems
       });
     }, 3600);
@@ -241,7 +292,125 @@ export default function PaymentStep3({
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] pb-16 font-sans">
-      {/* App Redirection & Detection Modal Overlay */}
+      {/* SentryPay Dedicated Deep Link Modal Overlay */}
+      {sentryPayState !== 'idle' && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full overflow-hidden shadow-2xl border border-gray-100 animate-fadeIn">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-emerald-700 to-teal-800 text-white p-6 text-center relative">
+              <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center mx-auto mb-3 text-3xl shadow-inner">
+                🛡️
+              </div>
+              <h3 className="text-xl font-extrabold">SentryPay Security</h3>
+              <p className="text-xs text-emerald-100 mt-1">Payment Security & Phishing Analysis</p>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 text-center">
+              {sentryPayState === 'launching' && (
+                <div className="space-y-4 py-2">
+                  <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+                    <div className="absolute inset-0 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
+                    <SmartphoneCharging size={24} className="text-emerald-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-gray-900">
+                      Launching SentryPay APK...
+                    </h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Connecting to installed SentryPay Android application via custom deep link...
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-left">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Target Deep Link:</span>
+                    <code className="text-[11px] font-mono text-emerald-800 break-all select-all block">
+                      {sentryPayDeepLink}
+                    </code>
+                  </div>
+                </div>
+              )}
+
+              {sentryPayState === 'opened' && (
+                <div className="space-y-4 py-2">
+                  <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                    <CheckCircle2 size={32} />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-extrabold text-gray-900">
+                      Redirected to SentryPay APK!
+                    </h4>
+                    <p className="text-xs text-gray-600 mt-1">
+                      SentryPay is analyzing the website and order details for fraud prevention. Follow the instructions in the SentryPay app to authorize or block the payment.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSentryPayState('idle')}
+                    className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-lg transition"
+                  >
+                    Close Window
+                  </button>
+                </div>
+              )}
+
+              {sentryPayState === 'not_installed' && (
+                <div className="space-y-4 py-1 text-left">
+                  <div className="text-center">
+                    <div className="w-14 h-14 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-2 shadow-inner">
+                      <ShieldAlert size={30} />
+                    </div>
+                    <h4 className="text-base font-black text-gray-900">
+                      SentryPay Not Installed
+                    </h4>
+                  </div>
+
+                  {/* Required user-friendly message */}
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 font-medium">
+                    <p className="font-bold text-rose-950 flex items-center gap-1.5 mb-1">
+                      <AlertCircle size={15} className="text-rose-600 flex-shrink-0" />
+                      <span>SentryPay is not installed. Please install SentryPay to use secure payment verification.</span>
+                    </p>
+                    <p className="text-[11px] text-rose-800 mt-1">
+                      This transaction requires local security analysis by the SentryPay Android application before authorization can be completed. Direct payment has been halted for your protection.
+                    </p>
+                  </div>
+
+                  {/* Deep link info for verification/testing */}
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-2.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-gray-500 uppercase">Constructed Deep Link:</span>
+                      <span className="text-[10px] text-emerald-700 font-bold font-mono">sentrypay://pay</span>
+                    </div>
+                    <code className="text-[11px] font-mono text-gray-700 break-all select-all block max-h-20 overflow-y-auto bg-white p-1.5 rounded border border-gray-200">
+                      {sentryPayDeepLink}
+                    </code>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="space-y-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={handlePayWithSentryPay}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow transition flex items-center justify-center gap-1.5"
+                    >
+                      <RefreshCw size={14} /> Retry Launching SentryPay
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSentryPayState('idle')}
+                      className="w-full py-2 text-gray-500 hover:text-gray-800 text-xs font-semibold text-center block"
+                    >
+                      Choose Another Payment Method
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* App Redirection & Detection Modal Overlay (for GPay and PhonePe) */}
       {redirectingApp && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full overflow-hidden shadow-2xl border border-gray-100 animate-fadeIn">
@@ -250,7 +419,6 @@ export default function PaymentStep3({
               <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center mx-auto mb-3 text-2xl shadow-inner">
                 {redirectingApp.icon === 'GPay' && <span className="font-black text-xl text-white">GPay</span>}
                 {redirectingApp.icon === 'PhonePe' && <span className="font-extrabold text-xl text-white">पे</span>}
-                {(redirectingApp.icon === 'SentryPay' || redirectingApp.icon === 'Sentry Pay') && <span className="text-2xl">🛡️</span>}
                 {redirectingApp.icon === 'UPI' && <span className="font-black text-lg">UPI</span>}
               </div>
               <h3 className="text-xl font-extrabold">{redirectingApp.name}</h3>
@@ -306,12 +474,10 @@ export default function PaymentStep3({
                   </div>
                   <div>
                     <h4 className="text-sm font-extrabold text-gray-900">
-                      {redirectingApp.name} {redirectingApp.isLocalApk ? 'APK Not Detected' : 'App Not Automatically Detected'}
+                      {redirectingApp.name} App Not Automatically Detected
                     </h4>
                     <p className="text-xs text-gray-500 mt-1">
-                      {redirectingApp.isLocalApk
-                        ? "Ensure the SentryPay APK is installed on this mobile phone. You can launch via custom scheme (sentrypay://), standard UPI intent, or complete via simulated response."
-                        : `If you are on desktop or ${redirectingApp.name} is not installed, you can trigger deep link manually, scan QR code, or complete via simulated response.`}
+                      If you are on desktop or {redirectingApp.name} is not installed, you can trigger deep link manually, scan QR code, or complete via simulated response.
                     </p>
                   </div>
 
@@ -320,25 +486,25 @@ export default function PaymentStep3({
                       onClick={() => {
                         window.location.href = redirectingApp.scheme;
                       }}
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5"
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5"
                     >
-                      <ExternalLink size={14} /> Launch SentryPay APK (sentrypay://pay)
+                      <ExternalLink size={14} /> Launch {redirectingApp.name}
                     </button>
 
                     <button
                       onClick={() => {
                         window.location.href = redirectingApp.fallbackIntent;
                       }}
-                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5"
+                      className="w-full py-2.5 bg-gray-800 hover:bg-gray-900 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5"
                     >
                       <Smartphone size={14} /> Open in Android App Chooser (upi://pay)
                     </button>
 
                     <button
-                      onClick={() => handleCompletePaymentFromApp(redirectingApp.name, 'Simulated Local APK Authorization')}
-                      className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5"
+                      onClick={() => handleCompletePaymentFromApp(redirectingApp.name, 'Simulated App Authorization')}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5"
                     >
-                      <Sparkles size={14} /> SIMULATE SUCCESSFUL SENTRYPAY PAYMENT (₹{totalAmount.toLocaleString('en-IN')})
+                      <Sparkles size={14} /> SIMULATE SUCCESSFUL APP PAYMENT (₹{totalAmount.toLocaleString('en-IN')})
                     </button>
 
                     <button
@@ -605,7 +771,7 @@ export default function PaymentStep3({
                     <div className="space-y-3 text-xs">
                       {/* SentryPay Option */}
                       <div 
-                        onClick={() => handleUpiRedirection('sentrypay')}
+                        onClick={() => setSelectedUpiOption('sentrypay')}
                         className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition relative overflow-hidden ${
                           selectedUpiOption === 'sentrypay'
                             ? 'border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-500/20 shadow-sm'
@@ -617,7 +783,7 @@ export default function PaymentStep3({
                             type="radio"
                             name="upiOption"
                             checked={selectedUpiOption === 'sentrypay'}
-                            onChange={() => handleUpiRedirection('sentrypay')}
+                            onChange={() => setSelectedUpiOption('sentrypay')}
                             className="accent-emerald-600 w-4 h-4 cursor-pointer"
                           />
                           <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-black shadow-sm text-base flex-shrink-0">
@@ -625,21 +791,29 @@ export default function PaymentStep3({
                           </div>
                           <div>
                             <div className="font-extrabold text-gray-900 flex items-center gap-1.5 flex-wrap">
-                              <span>SentryPay</span>
+                              <span>Pay with SentryPay</span>
                               <span className="bg-emerald-600 text-white font-black text-[8px] px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                                RECOMMENDED
+                                SECURE APK
                               </span>
                             </div>
                             <span className="text-[11px] text-gray-500 block mt-0.5">
-                              Auto-detects SentryPay mobile app & opens payment page (same as GPay)
+                              Launches installed SentryPay APK (sentrypay://pay) to verify security before UPI payment
                             </span>
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0 ml-2">
-                          <span className="font-extrabold text-emerald-700 block text-xs">₹50 OFF</span>
-                          <span className="text-[9px] text-emerald-600 font-semibold bg-emerald-100/80 px-1.5 py-0.5 rounded inline-block mt-0.5">
-                            Open App
-                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedUpiOption('sentrypay');
+                              handlePayWithSentryPay();
+                            }}
+                            className="text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg shadow-sm transition flex items-center gap-1"
+                          >
+                            <ShieldCheck size={13} />
+                            <span>Pay</span>
+                          </button>
                         </div>
                       </div>
 
@@ -735,7 +909,13 @@ export default function PaymentStep3({
                     </div>
 
                     <button
-                      onClick={() => handleUpiRedirection(selectedUpiOption)}
+                      onClick={() => {
+                        if (selectedUpiOption === 'sentrypay') {
+                          handlePayWithSentryPay();
+                        } else {
+                          handleUpiRedirection(selectedUpiOption);
+                        }
+                      }}
                       className={`w-full mt-6 py-3 font-extrabold text-xs uppercase rounded shadow-md transition flex items-center justify-center gap-2 ${
                         selectedUpiOption === 'sentrypay'
                           ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/25'
@@ -745,7 +925,7 @@ export default function PaymentStep3({
                       {selectedUpiOption === 'sentrypay' ? (
                         <>
                           <ShieldCheck size={16} />
-                          <span>PAY ₹{Math.max(1, totalAmount - 50).toLocaleString('en-IN')} VIA SENTRYPAY (OPENS APP)</span>
+                          <span>PAY WITH SENTRYPAY (₹{totalAmount.toLocaleString('en-IN')})</span>
                         </>
                       ) : (
                         <>
