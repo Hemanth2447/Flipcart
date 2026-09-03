@@ -13,7 +13,7 @@ import { PRODUCTS } from './data/products';
 import { Sparkles, Lock } from 'lucide-react';
 
 export default function App() {
-  // Page View Navigation State: 'catalog' | 'cart' | 'checkout' | 'payment'
+  // Page View Navigation State: 'catalog' | 'cart' | 'checkout' | 'payment' | 'sentrypay'
   const [currentView, setCurrentView] = useState('catalog');
 
   // Filter States
@@ -332,7 +332,7 @@ export default function App() {
           <div>
             <h5 className="text-white font-bold uppercase mb-2">PAYMENT METHODS</h5>
             <p className="text-[11px] leading-relaxed">
-              Supports <span className="text-white font-semibold">Pay by UPI</span> (Google Pay, PhonePe, Sentry Pay), <span className="text-white font-semibold">Pay by QR Code</span>, and <span className="text-white font-semibold">Cash on Delivery (COD)</span>.
+              Supports <span className="text-white font-semibold">Pay by UPI</span> (Google Pay, PhonePe, SentryPay), <span className="text-white font-semibold">Pay by QR Code</span>, and <span className="text-white font-semibold">Cash on Delivery (COD)</span>.
             </p>
           </div>
         </div>

@@ -6,7 +6,12 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
-export default function PaymentStep3({ checkoutItems, totalAmount, onBackToCheckout, onPaymentSuccess }) {
+export default function PaymentStep3({ 
+  checkoutItems, 
+  totalAmount, 
+  onBackToCheckout, 
+  onPaymentSuccess 
+}) {
   const [selectedMethod, setSelectedMethod] = useState('qr'); // 'qr' | 'upi' | 'card' | 'emi' | 'cod' | 'giftcard'
   const [selectedUpiOption, setSelectedUpiOption] = useState('sentrypay'); // 'sentrypay' | 'gpay' | 'phonepe' | 'custom'
   const [customUpiId, setCustomUpiId] = useState('');
@@ -45,7 +50,7 @@ export default function PaymentStep3({ checkoutItems, totalAmount, onBackToCheck
     return `${m}:${s}`;
   };
 
-  // UPI Deep Link Generator
+  // UPI Deep Link Generator with Mobile App Detection
   const getUpiDeepLink = (appKey, upiVpa) => {
     const payeeVpa = upiVpa || 'flipcart.pay@bank';
     const payeeName = encodeURIComponent('Flipcart Online Shopping');
@@ -55,10 +60,23 @@ export default function PaymentStep3({ checkoutItems, totalAmount, onBackToCheck
 
     const baseParams = `pa=${payeeVpa}&pn=${payeeName}&am=${amount}&cu=INR&tn=${txnNote}&tr=${txnId}`;
 
-    if (appKey === 'gpay') {
+    if (appKey === 'sentrypay') {
+      return {
+        name: 'SentryPay',
+        scheme: `sentrypay://pay?${baseParams}`,
+        intentUrl: `intent://pay?${baseParams}#Intent;scheme=sentrypay;package=com.sentrypay;end`,
+        webUrl: `https://sentrypay.com/pay?${baseParams}`,
+        fallbackIntent: `upi://pay?${baseParams}`,
+        icon: 'SentryPay',
+        color: 'from-emerald-700 to-teal-800',
+        badgeBg: 'bg-emerald-700'
+      };
+    } else if (appKey === 'gpay') {
       return {
         name: 'Google Pay (GPay)',
         scheme: `gpay://upi/pay?${baseParams}`,
+        intentUrl: `intent://upi/pay?${baseParams}#Intent;scheme=gpay;package=com.google.android.apps.nfc.payment;end`,
+        webUrl: `https://pay.google.com`,
         fallbackIntent: `upi://pay?${baseParams}`,
         icon: 'GPay',
         color: 'from-blue-600 to-emerald-600',
@@ -68,24 +86,19 @@ export default function PaymentStep3({ checkoutItems, totalAmount, onBackToCheck
       return {
         name: 'PhonePe',
         scheme: `phonepe://pay?${baseParams}`,
+        intentUrl: `intent://pay?${baseParams}#Intent;scheme=phonepe;package=com.phonepe.app;end`,
+        webUrl: `https://www.phonepe.com`,
         fallbackIntent: `upi://pay?${baseParams}`,
         icon: 'PhonePe',
         color: 'from-purple-700 to-indigo-800',
         badgeBg: 'bg-purple-700'
       };
-    } else if (appKey === 'sentrypay') {
-      return {
-        name: 'Sentry Pay',
-        scheme: `sentrypay://pay?${baseParams}`,
-        fallbackIntent: `upi://pay?${baseParams}`,
-        icon: 'Sentry Pay',
-        color: 'from-emerald-700 to-teal-800',
-        badgeBg: 'bg-emerald-700'
-      };
     } else {
       return {
         name: 'UPI App',
         scheme: `upi://pay?${baseParams}`,
+        intentUrl: `upi://pay?${baseParams}`,
+        webUrl: `https://upi.org`,
         fallbackIntent: `upi://pay?${baseParams}`,
         icon: 'UPI',
         color: 'from-indigo-600 to-blue-700',
@@ -94,37 +107,58 @@ export default function PaymentStep3({ checkoutItems, totalAmount, onBackToCheck
     }
   };
 
-  // Handle UPI Selection & Redirection to native App
+  // Handle Mobile App Checking & Redirection to Sentry Pay / UPI App (GPay, PhonePe, Sentry Pay)
   const handleUpiRedirection = (appKey) => {
-    const vpa = appKey === 'custom' ? customUpiId : 'flipcart.merchant@upi';
+    setSelectedUpiOption(appKey);
+    const vpa = appKey === 'custom' ? customUpiId : 'flipcart.pay@bank';
     const appInfo = getUpiDeepLink(appKey, vpa);
 
     setRedirectingApp(appInfo);
     setAppDetectedState('checking');
 
-    // Attempt browser window location trigger for deep link
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isMobile = isAndroid || isIOS;
+
+    // Trigger deep link attempt to open the native app on mobile
     try {
-      window.location.href = appInfo.scheme;
+      if (isAndroid && appInfo.intentUrl) {
+        window.location.href = appInfo.intentUrl;
+      } else {
+        window.location.href = appInfo.scheme;
+      }
     } catch (err) {
-      console.log('Deep link trigger:', err);
+      console.log('App launch trigger error:', err);
     }
 
-    // Timer check to detect if mobile app opened or if fallback is needed
+    // Monitor whether app opens (window blur / visibility change / pagehide)
     let hasBlurred = false;
     const handleBlur = () => {
       hasBlurred = true;
     };
+    const handleVisibility = () => {
+      if (document.hidden || document.visibilityState === 'hidden') {
+        hasBlurred = true;
+      }
+    };
+
     window.addEventListener('blur', handleBlur);
+    window.addEventListener('pagehide', handleBlur);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     setTimeout(() => {
       window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('pagehide', handleBlur);
+      document.removeEventListener('visibilitychange', handleVisibility);
+
       if (hasBlurred) {
+        // Mobile application detected & opened on the device
         setAppDetectedState('redirected');
       } else {
-        // App deep link didn't switch context -> App not detected or on desktop
+        // Mobile app not detected / not installed or running on desktop
         setAppDetectedState('not_found');
       }
-    }, 2200);
+    }, 2000);
   };
 
   // Complete Payment after redirect / simulation
@@ -216,7 +250,7 @@ export default function PaymentStep3({ checkoutItems, totalAmount, onBackToCheck
               <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center mx-auto mb-3 text-2xl shadow-inner">
                 {redirectingApp.icon === 'GPay' && <span className="font-black text-xl text-white">GPay</span>}
                 {redirectingApp.icon === 'PhonePe' && <span className="font-extrabold text-xl text-white">पे</span>}
-                {redirectingApp.icon === 'Sentry Pay' && <span className="text-2xl">🛡️</span>}
+                {(redirectingApp.icon === 'SentryPay' || redirectingApp.icon === 'Sentry Pay') && <span className="text-2xl">🛡️</span>}
                 {redirectingApp.icon === 'UPI' && <span className="font-black text-lg">UPI</span>}
               </div>
               <h3 className="text-xl font-extrabold">{redirectingApp.name}</h3>
@@ -530,7 +564,7 @@ export default function PaymentStep3({ checkoutItems, totalAmount, onBackToCheck
                           पे PhonePe
                         </div>
                         <div className="px-2.5 py-1 bg-emerald-700 text-white rounded text-xs font-bold flex items-center gap-1">
-                          🛡️ Sentry Pay
+                          🛡️ SentryPay
                         </div>
                       </div>
                       <p className="text-[11px] text-gray-400 mt-1">or any other UPI app</p>
@@ -558,13 +592,13 @@ export default function PaymentStep3({ checkoutItems, totalAmount, onBackToCheck
                     </h3>
 
                     <div className="space-y-3 text-xs">
-                      {/* Sentry Pay Option */}
-                      <label 
-                        onClick={() => setSelectedUpiOption('sentrypay')}
-                        className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition ${
+                      {/* SentryPay Option */}
+                      <div 
+                        onClick={() => handleUpiRedirection('sentrypay')}
+                        className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition relative overflow-hidden ${
                           selectedUpiOption === 'sentrypay'
-                            ? 'border-emerald-500 bg-emerald-50/60 ring-2 ring-emerald-500/20'
-                            : 'border-gray-200 hover:border-gray-300'
+                            ? 'border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-500/20 shadow-sm'
+                            : 'border-gray-200 hover:border-emerald-400 hover:bg-gray-50/80'
                         }`}
                       >
                         <div className="flex items-center gap-3">
@@ -572,24 +606,31 @@ export default function PaymentStep3({ checkoutItems, totalAmount, onBackToCheck
                             type="radio"
                             name="upiOption"
                             checked={selectedUpiOption === 'sentrypay'}
-                            onChange={() => setSelectedUpiOption('sentrypay')}
-                            className="accent-emerald-600"
+                            onChange={() => handleUpiRedirection('sentrypay')}
+                            className="accent-emerald-600 w-4 h-4 cursor-pointer"
                           />
-                          <div className="w-8 h-8 rounded bg-emerald-600 text-white flex items-center justify-center font-black shadow-sm text-sm">
+                          <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-black shadow-sm text-base flex-shrink-0">
                             🛡️
                           </div>
                           <div>
-                            <span className="font-extrabold text-gray-900 block flex items-center gap-1.5">
-                              Sentry Pay
-                              <span className="bg-emerald-600 text-white font-black text-[8px] px-1.5 py-0.2 rounded-full uppercase">
+                            <div className="font-extrabold text-gray-900 flex items-center gap-1.5 flex-wrap">
+                              <span>SentryPay</span>
+                              <span className="bg-emerald-600 text-white font-black text-[8px] px-1.5 py-0.5 rounded-full uppercase tracking-wider">
                                 RECOMMENDED
                               </span>
+                            </div>
+                            <span className="text-[11px] text-gray-500 block mt-0.5">
+                              Auto-detects SentryPay mobile app & opens payment page (same as GPay)
                             </span>
-                            <span className="text-[10px] text-gray-500 block">Auto-detect & redirect to Sentry Pay app</span>
                           </div>
                         </div>
-                        <span className="font-bold text-emerald-700">₹50 OFF</span>
-                      </label>
+                        <div className="text-right flex-shrink-0 ml-2">
+                          <span className="font-extrabold text-emerald-700 block text-xs">₹50 OFF</span>
+                          <span className="text-[9px] text-emerald-600 font-semibold bg-emerald-100/80 px-1.5 py-0.5 rounded inline-block mt-0.5">
+                            Open App
+                          </span>
+                        </div>
+                      </div>
 
                       {/* Google Pay */}
                       <label 
@@ -684,9 +725,23 @@ export default function PaymentStep3({ checkoutItems, totalAmount, onBackToCheck
 
                     <button
                       onClick={() => handleUpiRedirection(selectedUpiOption)}
-                      className="w-full mt-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs uppercase rounded shadow transition flex items-center justify-center gap-1.5"
+                      className={`w-full mt-6 py-3 font-extrabold text-xs uppercase rounded shadow-md transition flex items-center justify-center gap-2 ${
+                        selectedUpiOption === 'sentrypay'
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/25'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/25'
+                      }`}
                     >
-                      <ExternalLink size={14} /> PAY ₹{totalAmount.toLocaleString('en-IN')} VIA {selectedUpiOption.toUpperCase()}
+                      {selectedUpiOption === 'sentrypay' ? (
+                        <>
+                          <ShieldCheck size={16} />
+                          <span>PAY ₹{Math.max(1, totalAmount - 50).toLocaleString('en-IN')} VIA SENTRYPAY (OPENS APP)</span>
+                        </>
+                      ) : (
+                        <>
+                          <ExternalLink size={14} />
+                          <span>PAY ₹{totalAmount.toLocaleString('en-IN')} VIA {selectedUpiOption.toUpperCase()}</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 )}

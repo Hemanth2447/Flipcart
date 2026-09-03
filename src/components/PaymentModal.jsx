@@ -41,7 +41,7 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
     return `${m}:${s}`;
   };
 
-  // UPI Deep Link Generator
+  // UPI Deep Link Generator with Mobile App Detection
   const getUpiDeepLink = (appKey, upiVpa) => {
     const payeeVpa = upiVpa || 'flipcart.pay@bank';
     const payeeName = encodeURIComponent('Flipcart Online Shopping');
@@ -51,10 +51,22 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
 
     const baseParams = `pa=${payeeVpa}&pn=${payeeName}&am=${amount}&cu=INR&tn=${txnNote}&tr=${txnId}`;
 
-    if (appKey === 'gpay') {
+    if (appKey === 'sentrypay') {
+      return {
+        name: 'SentryPay',
+        scheme: `sentrypay://pay?${baseParams}`,
+        intentUrl: `intent://pay?${baseParams}#Intent;scheme=sentrypay;package=com.sentrypay;end`,
+        webUrl: `https://sentrypay.com/pay?${baseParams}`,
+        fallbackIntent: `upi://pay?${baseParams}`,
+        icon: 'SentryPay',
+        color: 'from-emerald-700 to-teal-800'
+      };
+    } else if (appKey === 'gpay') {
       return {
         name: 'Google Pay (GPay)',
         scheme: `gpay://upi/pay?${baseParams}`,
+        intentUrl: `intent://upi/pay?${baseParams}#Intent;scheme=gpay;package=com.google.android.apps.nfc.payment;end`,
+        webUrl: `https://pay.google.com`,
         fallbackIntent: `upi://pay?${baseParams}`,
         icon: 'GPay',
         color: 'from-blue-600 to-emerald-600'
@@ -63,22 +75,18 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
       return {
         name: 'PhonePe',
         scheme: `phonepe://pay?${baseParams}`,
+        intentUrl: `intent://pay?${baseParams}#Intent;scheme=phonepe;package=com.phonepe.app;end`,
+        webUrl: `https://www.phonepe.com`,
         fallbackIntent: `upi://pay?${baseParams}`,
         icon: 'PhonePe',
         color: 'from-purple-700 to-indigo-800'
-      };
-    } else if (appKey === 'sentrypay') {
-      return {
-        name: 'Sentry Pay',
-        scheme: `sentrypay://pay?${baseParams}`,
-        fallbackIntent: `upi://pay?${baseParams}`,
-        icon: 'Sentry Pay',
-        color: 'from-emerald-700 to-teal-800'
       };
     } else {
       return {
         name: 'UPI App',
         scheme: `upi://pay?${baseParams}`,
+        intentUrl: `upi://pay?${baseParams}`,
+        webUrl: `https://upi.org`,
         fallbackIntent: `upi://pay?${baseParams}`,
         icon: 'UPI',
         color: 'from-indigo-600 to-blue-700'
@@ -86,7 +94,7 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
     }
   };
 
-  // Trigger App Detection & Redirection
+  // Trigger App Detection & Redirection to Sentry Pay / UPI App
   const handleUpiRedirection = (appKey) => {
     const vpa = appKey === 'custom' ? customUpiId : 'flipcart.merchant@upi';
     const appInfo = getUpiDeepLink(appKey, vpa);
@@ -94,8 +102,15 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
     setRedirectingApp(appInfo);
     setAppDetectedState('checking');
 
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
     try {
-      window.location.href = appInfo.scheme;
+      if (isAndroid && appInfo.intentUrl) {
+        window.location.href = appInfo.intentUrl;
+      } else {
+        window.location.href = appInfo.scheme;
+      }
     } catch (err) {
       console.log('Deep link trigger:', err);
     }
@@ -105,15 +120,17 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
       hasBlurred = true;
     };
     window.addEventListener('blur', handleBlur);
+    window.addEventListener('pagehide', handleBlur);
 
     setTimeout(() => {
       window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('pagehide', handleBlur);
       if (hasBlurred) {
         setAppDetectedState('redirected');
       } else {
         setAppDetectedState('not_found');
       }
-    }, 2200);
+    }, 2000);
   };
 
   const handleCompletePaymentFromApp = (methodName, detailStr) => {
@@ -200,7 +217,7 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
                 <div className="w-14 h-14 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center mx-auto mb-2 text-xl shadow-inner font-extrabold">
                   {redirectingApp.icon === 'GPay' && 'GPay'}
                   {redirectingApp.icon === 'PhonePe' && 'पे'}
-                  {redirectingApp.icon === 'Sentry Pay' && '🛡️'}
+                  {(redirectingApp.icon === 'SentryPay' || redirectingApp.icon === 'Sentry Pay') && '🛡️'}
                   {redirectingApp.icon === 'UPI' && 'UPI'}
                 </div>
                 <h3 className="text-lg font-extrabold">{redirectingApp.name}</h3>
@@ -435,7 +452,7 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
                   <div className="space-y-3">
                     {/* Sentry Pay (Highlighted!) */}
                     <label 
-                      onClick={() => setSelectedUpiOption('sentrypay')}
+                      onClick={() => handleUpiRedirection('sentrypay')}
                       className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition ${
                         selectedUpiOption === 'sentrypay'
                           ? 'border-emerald-500 bg-emerald-50/60 ring-2 ring-emerald-500/20'
@@ -447,7 +464,7 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
                           type="radio"
                           name="upiOption"
                           checked={selectedUpiOption === 'sentrypay'}
-                          onChange={() => setSelectedUpiOption('sentrypay')}
+                          onChange={() => handleUpiRedirection('sentrypay')}
                           className="accent-emerald-600"
                         />
                         <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-black text-sm shadow-sm">
@@ -455,12 +472,12 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
                         </div>
                         <div>
                           <span className="text-sm font-bold text-gray-900 block flex items-center gap-1.5">
-                            Sentry Pay
+                            SentryPay
                             <span className="bg-emerald-600 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider">
                               RECOMMENDED
                             </span>
                           </span>
-                          <span className="text-[11px] text-gray-500 block">Auto-detects app & redirects to Sentry Pay • Extra ₹50 OFF</span>
+                          <span className="text-[11px] text-gray-500 block">Auto-detects SentryPay mobile app & opens payment page (same as GPay) • Extra ₹50 OFF</span>
                         </div>
                       </div>
                       <span className="text-xs font-bold text-emerald-700">₹50 OFF</span>
