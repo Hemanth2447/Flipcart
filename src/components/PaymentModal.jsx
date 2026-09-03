@@ -55,11 +55,11 @@ export default function PaymentModal({ items, totalAmount, onClose, onPaymentSuc
       return {
         name: 'SentryPay',
         scheme: `sentrypay://pay?${baseParams}`,
-        intentUrl: `intent://pay?${baseParams}#Intent;scheme=sentrypay;package=com.sentrypay;end`,
-        webUrl: `https://sentrypay.com/pay?${baseParams}`,
+        intentUrl: `intent://pay?${baseParams}#Intent;scheme=sentrypay;end`,
         fallbackIntent: `upi://pay?${baseParams}`,
         icon: 'SentryPay',
-        color: 'from-emerald-700 to-teal-800'
+        color: 'from-emerald-700 to-teal-800',
+        isLocalApk: true
       };
     } else if (appKey === 'gpay') {
       return {

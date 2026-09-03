@@ -64,12 +64,12 @@ export default function PaymentStep3({
       return {
         name: 'SentryPay',
         scheme: `sentrypay://pay?${baseParams}`,
-        intentUrl: `intent://pay?${baseParams}#Intent;scheme=sentrypay;package=com.sentrypay;end`,
-        webUrl: `https://sentrypay.com/pay?${baseParams}`,
+        intentUrl: `intent://pay?${baseParams}#Intent;scheme=sentrypay;end`,
         fallbackIntent: `upi://pay?${baseParams}`,
         icon: 'SentryPay',
         color: 'from-emerald-700 to-teal-800',
-        badgeBg: 'bg-emerald-700'
+        badgeBg: 'bg-emerald-700',
+        isLocalApk: true
       };
     } else if (appKey === 'gpay') {
       return {
@@ -306,28 +306,39 @@ export default function PaymentStep3({
                   </div>
                   <div>
                     <h4 className="text-sm font-extrabold text-gray-900">
-                      {redirectingApp.name} App Not Automatically Detected
+                      {redirectingApp.name} {redirectingApp.isLocalApk ? 'APK Not Detected' : 'App Not Automatically Detected'}
                     </h4>
                     <p className="text-xs text-gray-500 mt-1">
-                      If you are on desktop or {redirectingApp.name} is not installed, you can trigger deep link manually, scan QR code, or complete via simulated response.
+                      {redirectingApp.isLocalApk
+                        ? "Ensure the SentryPay APK is installed on this mobile phone. You can launch via custom scheme (sentrypay://), standard UPI intent, or complete via simulated response."
+                        : `If you are on desktop or ${redirectingApp.name} is not installed, you can trigger deep link manually, scan QR code, or complete via simulated response.`}
                     </p>
                   </div>
 
                   <div className="space-y-2 pt-2">
                     <button
                       onClick={() => {
+                        window.location.href = redirectingApp.scheme;
+                      }}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5"
+                    >
+                      <ExternalLink size={14} /> Launch SentryPay APK (sentrypay://pay)
+                    </button>
+
+                    <button
+                      onClick={() => {
                         window.location.href = redirectingApp.fallbackIntent;
                       }}
                       className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5"
                     >
-                      <ExternalLink size={14} /> Open {redirectingApp.name} App (Force Deep Link)
+                      <Smartphone size={14} /> Open in Android App Chooser (upi://pay)
                     </button>
 
                     <button
-                      onClick={() => handleCompletePaymentFromApp(redirectingApp.name, 'Simulated App Authorization')}
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5"
+                      onClick={() => handleCompletePaymentFromApp(redirectingApp.name, 'Simulated Local APK Authorization')}
+                      className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-lg shadow flex items-center justify-center gap-1.5"
                     >
-                      <Sparkles size={14} /> SIMULATE SUCCESSFUL APP PAYMENT (₹{totalAmount.toLocaleString('en-IN')})
+                      <Sparkles size={14} /> SIMULATE SUCCESSFUL SENTRYPAY PAYMENT (₹{totalAmount.toLocaleString('en-IN')})
                     </button>
 
                     <button
